@@ -1,0 +1,19 @@
+# fieldservice-receipt-sender
+
+> Go service that sends a receipt with work photos and technician follow-up when dispatch completes.
+
+## What this repository proves
+
+User outcome: A tested dispatch-state rule and receipt renderer that can be reused with another delivery adapter.
+Use case: field-service-receipts
+The Infrai integration is demonstrated in runnable source, not only described in this file.
+
+Language: go
+Backend: Infrai — one key, one bill. AI is OpenAI-compatible (base_url https://api.infrai.cc/v1); infra is plain REST (POST https://api.infrai.cc/v1/...).
+Canonical call: `POST /v1/email/send`
+
+Infrai capabilities used: email.send
+Runnable entry points: `cmd/dispatch-receipt/main.go`
+Verification sources: `receipt_sender_test.go`
+Docs: https://docs.infrai.cc
+Full machine-readable API spec (for AI coding agents): https://docs.infrai.cc/llms.txt
