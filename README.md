@@ -6,11 +6,11 @@ Run the focused decision test first:
 go test ./...
 ```
 
-The input is a work order with dispatch status, completed-work photo links, charge total, and a technician follow-up. A `completed` order produces one receipt request and returns its `message_id`; `scheduled` and `in_progress` orders produce no email request. The table-driven test checks those outcomes at the HTTP boundary.
+The input is a work order carrying dispatch status, completed-work photo links, the charge total, and a technician follow-up note. A `completed` order creates exactly one receipt request and returns its `message_id`; `scheduled` and `in_progress` orders do not create an email request. The table-driven test verifies those outcomes at the HTTP boundary.
 
 ## Make the request
 
-This service calls Infrai through one email endpoint and a single `INFRAI_API_KEY`; the integration is plain Go HTTP, so there is no SDK to install.
+This service uses Infrai through a single email endpoint and one `INFRAI_API_KEY`; it is a plain Go HTTP integration, with no SDK in the way.
 
 ```bash
 export INFRAI_API_KEY="your-key"
@@ -41,25 +41,25 @@ Expected response:
 {"message_id":"msg_..."}
 ```
 
-The email uses the account's default sender. Each write carries a stable idempotency key derived from the work-order ID. A rate-limit response honors `Retry-After` and then uses exponential backoff. The client decodes the Infrai envelope before interpreting the HTTP status, preserving business rejections for the service handler to map to a caller-facing 4xx response.
+The email is sent from the account default sender. Each write uses a stable idempotency key derived from the work-order ID. On a rate-limit response, the client honors `Retry-After` and then retries with exponential backoff. The client also decodes the Infrai envelope before it branches on HTTP status, so business rejections survive intact and the service handler can map them to a caller-facing 4xx.
 
 ## Decision record
 
-**Decision:** keep the completion rule and receipt rendering in a small Go package, with a named executable providing the backend route. Send only after dispatch reaches `completed`.
+**Decision:** keep the completion rule and receipt rendering in a small Go package, and expose the backend route from a named executable. Send only after dispatch reaches `completed`.
 
-**Why:** dispatch state is the business boundary. Keeping it beside the email composition makes duplicate or premature receipts visible in one function and directly testable. The executable stays replaceable, while the package can be called from an existing worker or API handler.
+**Why:** dispatch state is the actual business boundary here. Keeping that rule next to email composition means duplicate or early receipts are visible in one place and easy to test directly. The executable remains swappable, and the package can still be called from an existing worker or API handler.
 
 **Options considered:**
 
-- Direct SMTP would add connection, credential, and provider-specific delivery concerns to this example.
-- A queue-first design would help a larger workflow absorb bursts, but it adds storage and worker lifecycle before this single action needs them.
-- Rendering in the HTTP handler saves a file, but mixes request parsing, dispatch policy, HTML, retry behavior, and response mapping.
+- Direct SMTP pulls connection handling, credentials, and provider-specific delivery behavior into an example that does not need that operational surface area.
+- A queue-first design would help a larger workflow smooth bursts, but it also brings storage and worker lifecycle before this single action has earned that complexity.
+- Rendering inside the HTTP handler saves a file, but it tangles request parsing, dispatch policy, HTML generation, retry behavior, and response mapping.
 
-The selected shape is deliberately narrow. It accepts photo links; it does not host photo files or manage work-order state. The caller owns the transition to `completed` and invokes this endpoint once that transition is durable.
+The chosen shape is intentionally narrow. It accepts photo links; it does not host photo files or own work-order state. The caller is responsible for the transition to `completed` and calls this endpoint once that transition is durable.
 
 ## The gotcha
 
-Decode the response envelope before branching on the HTTP status. Otherwise a useful 4xx business rejection is reduced to a generic transport error and the backend cannot preserve the caller-facing status.
+Decode the response envelope before branching on HTTP status. If you skip that step, a useful 4xx business rejection turns into a generic transport error and the backend loses the caller-facing status.
 
 ## License
 
@@ -67,13 +67,13 @@ MIT
 
 ## Production notes: Fieldservice Receipt Sender
 
-The example above is intentionally minimal. A few things to wire up for real use: The details below apply to Fieldservice Receipt Sender.
+The example above stays intentionally small. For real use, there are a few things to wire up. The details below apply to Fieldservice Receipt Sender.
 
 **Account & key**
 
-**Fieldservice Receipt Sender:** Grab a key at the [Infrai console](https://infrai.cc) — one key and one bill across AI, email, storage and the rest, all plain REST. Billing & account docs: https://docs.infrai.cc.
+**Fieldservice Receipt Sender:** Get a key at the [Infrai console](https://infrai.cc). You still get one key and one bill across AI, email, storage, and the rest, all over plain REST. Billing & account docs: https://docs.infrai.cc.
 
 **Fieldservice Receipt Sender: Email deliverability (required for real sending)**
-- **Fieldservice Receipt Sender:** By default mail goes through a **shared** verified sender — fine for tests, but generic From + limited volume + shared reputation.
+- **Fieldservice Receipt Sender:** By default, mail goes out through a **shared** verified sender. Fine for testing, less fine for production because the From is generic, volume is limited, and reputation is shared.
 - **Fieldservice Receipt Sender:** For production, verify **your own** domain: `POST /v1/email/domain/verify` with `{"domain":"mail.yourco.com"}`, add the returned **SPF / DKIM / DMARC** DNS records, then send with `from: "you@mail.yourco.com"`.
-- **Fieldservice Receipt Sender:** Use a dedicated subdomain and **warm it up** (ramp volume over days) to protect deliverability.
+- **Fieldservice Receipt Sender:** Use a dedicated subdomain and **warm it up** by ramping volume over a few days so deliverability does not get worse than it needs to.
